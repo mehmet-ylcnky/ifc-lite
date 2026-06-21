@@ -127,7 +127,7 @@ pub use instancing::{
 pub use material_layer_index::{LayerAxis, LayerBuildup, LayerInfo, MaterialLayerIndex};
 pub use mesh::{CoordinateShift, InstanceMeta, Mesh, SubMesh, SubMeshCollection};
 pub use processors::{
-    AdvancedBrepProcessor, BooleanClippingProcessor, ExtrudedAreaSolidProcessor,
+    set_skip_small_cuts, AdvancedBrepProcessor, BooleanClippingProcessor, ExtrudedAreaSolidProcessor,
     ExtrudedAreaSolidTaperedProcessor, FaceBasedSurfaceModelProcessor, FacetedBrepProcessor,
     build_texture_index, MappedItemProcessor, MeshTexture, PolygonalFaceSetProcessor,
     ResolvedTextureMap, RevolvedAreaSolidProcessor, SurfaceOfLinearExtrusionProcessor,
