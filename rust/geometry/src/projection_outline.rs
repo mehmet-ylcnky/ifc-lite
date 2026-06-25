@@ -81,9 +81,20 @@ fn axis_coord(p: [f64; 3], axis: ProjectionAxis) -> f64 {
 }
 
 /// Area below which a projected triangle is treated as degenerate (edge-on to
-/// the view) and skipped. In drawing metres² — generous enough to drop f32
-/// slivers, small enough to keep real footprints.
-const DEGENERATE_AREA: f64 = 1.0e-12;
+/// the view) and skipped. This is a *relative* fraction of the projected
+/// bounding-box area — triangles smaller than this fraction of the mesh's
+/// projected extent are considered slivers regardless of absolute scale.
+const DEGENERATE_AREA_FRACTION: f64 = 1.0e-10;
+
+/// Maximum number of triangles to feed into the i_overlay union. Meshes with
+/// more valid projected triangles bail out early and return `None` to prevent
+/// unbounded computation time in pathological geometry.
+const MAX_OVERLAY_TRIANGLES: usize = 50_000;
+
+/// Relative altitude threshold for near-collinear triangle detection.
+/// Triangles whose smallest altitude is below this fraction of the projected
+/// bounding-box diagonal are skipped to prevent i_overlay edge cases.
+const COLLINEAR_ALTITUDE_FRACTION: f64 = 1.0e-6;
 
 /// Compute the winding-independent 2D footprint outline of a triangle mesh.
 ///
@@ -105,6 +116,19 @@ pub fn mesh_outline_2d(
     let mut clip: Vec<Vec<[f64; 2]>> = Vec::new();
     let mut axis_min = f64::INFINITY;
     let mut axis_max = f64::NEG_INFINITY;
+
+    // First pass: project all triangles, compute 2D bounding box for relative thresholds
+    struct ProjectedTri {
+        a0: [f64; 2],
+        a1: [f64; 2],
+        a2: [f64; 2],
+        area: f64,
+    }
+    let mut projected: Vec<ProjectedTri> = Vec::new();
+    let mut proj_min_u = f64::INFINITY;
+    let mut proj_max_u = f64::NEG_INFINITY;
+    let mut proj_min_v = f64::INFINITY;
+    let mut proj_max_v = f64::NEG_INFINITY;
 
     for tri in indices.chunks_exact(3) {
         let (i0, i1, i2) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
@@ -137,16 +161,46 @@ pub fn mesh_outline_2d(
         let a1 = project(p1, axis, flipped);
         let a2 = project(p2, axis, flipped);
 
-        // Signed area in (u, v); skip degenerate, force CCW so i_overlay's
-        // NonZero fill unions (mixed winding would cancel triangles instead).
+        for pt in [a0, a1, a2] {
+            proj_min_u = proj_min_u.min(pt[0]);
+            proj_max_u = proj_max_u.max(pt[0]);
+            proj_min_v = proj_min_v.min(pt[1]);
+            proj_max_v = proj_max_v.max(pt[1]);
+        }
+
         let area = (a1[0] - a0[0]) * (a2[1] - a0[1]) - (a2[0] - a0[0]) * (a1[1] - a0[1]);
-        if area.abs() < DEGENERATE_AREA {
+        projected.push(ProjectedTri { a0, a1, a2, area });
+    }
+
+    if projected.is_empty() {
+        return None;
+    }
+
+    // Compute relative thresholds from projected bounding-box extent
+    let extent_u = proj_max_u - proj_min_u;
+    let extent_v = proj_max_v - proj_min_v;
+    let proj_diagonal = (extent_u * extent_u + extent_v * extent_v).sqrt().max(1e-12);
+    let area_threshold = proj_diagonal * proj_diagonal * DEGENERATE_AREA_FRACTION;
+    let altitude_threshold = proj_diagonal * COLLINEAR_ALTITUDE_FRACTION;
+
+    // Second pass: filter triangles using relative thresholds
+    for tri in &projected {
+        if tri.area.abs() < area_threshold {
             continue;
         }
-        let path: Vec<[f64; 2]> = if area >= 0.0 {
-            vec![a0, a1, a2]
+        // Near-collinear check: smallest altitude = area / longest_edge
+        let max_edge_sq = ((tri.a1[0] - tri.a0[0]).powi(2) + (tri.a1[1] - tri.a0[1]).powi(2))
+            .max((tri.a2[0] - tri.a1[0]).powi(2) + (tri.a2[1] - tri.a1[1]).powi(2))
+            .max((tri.a0[0] - tri.a2[0]).powi(2) + (tri.a0[1] - tri.a2[1]).powi(2));
+        if max_edge_sq > 0.0 && tri.area.abs() / max_edge_sq.sqrt() < altitude_threshold {
+            continue;
+        }
+
+        // Force CCW winding for i_overlay's NonZero fill rule
+        let path: Vec<[f64; 2]> = if tri.area >= 0.0 {
+            vec![tri.a0, tri.a1, tri.a2]
         } else {
-            vec![a0, a2, a1]
+            vec![tri.a0, tri.a2, tri.a1]
         };
 
         if subject.is_empty() {
@@ -160,7 +214,14 @@ pub fn mesh_outline_2d(
         return None;
     }
 
-    // Single triangle → its own outline (skip the union round-trip).
+    // Bail out if the polygon set exceeds the safety limit to prevent
+    // unbounded computation in i_overlay on pathological geometry.
+    let total_polys = subject.len() + clip.len();
+    if total_polys > MAX_OVERLAY_TRIANGLES {
+        return None;
+    }
+
+    // Single triangle -> its own outline (skip the union round-trip).
     let shapes: Vec<Vec<Vec<[f64; 2]>>> = if clip.is_empty() {
         vec![subject.clone()]
     } else {
