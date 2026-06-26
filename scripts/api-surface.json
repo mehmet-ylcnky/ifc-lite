@@ -3710,5 +3710,8 @@
     "meshOutline2d: function",
     "version: function"
   ],
-  "create-ifc-lite": []
+  "create-ifc-lite": [],
+  "@ifc-lite/wasm/init-node": [
+    "initNode: function"
+  ]
 }

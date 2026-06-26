@@ -18,7 +18,9 @@
   "files": [
     "pkg/ifc-lite_bg.wasm",
     "pkg/ifc-lite.js",
-    "pkg/ifc-lite.d.ts"
+    "pkg/ifc-lite.d.ts",
+    "init-node.js",
+    "init-node.d.ts"
   ],
   "main": "./pkg/ifc-lite.js",
   "module": "./pkg/ifc-lite.js",
@@ -28,6 +30,11 @@
       "types": "./pkg/ifc-lite.d.ts",
       "import": "./pkg/ifc-lite.js",
       "default": "./pkg/ifc-lite.js"
+    },
+    "./init-node": {
+      "types": "./init-node.d.ts",
+      "import": "./init-node.js",
+      "default": "./init-node.js"
     },
     "./ifc-lite_bg.wasm": "./pkg/ifc-lite_bg.wasm"
   },
